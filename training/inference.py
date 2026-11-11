@@ -3,6 +3,7 @@ from pathlib import Path
 import torch
 from training.diacritics import apply_labels, strip_diacritics
 from training.model import Diacritizer
+from training.transformer import TransformerDiacritizer
 
 
 class Predictor:
@@ -13,7 +14,11 @@ class Predictor:
         self.chars = payload['chars']
         self.tags = {value: key for key, value in payload['tags'].items()}
         self.max_length = payload['max_length']
-        self.model = Diacritizer(**payload['config']).to(self.device)
+        architecture = payload.get('architecture', 'bilstm')
+        if architecture not in ('bilstm', 'transformer'):
+            raise ValueError(f'Unsupported architecture: {architecture}')
+        model_class = TransformerDiacritizer if architecture == 'transformer' else Diacritizer
+        self.model = model_class(**payload['config']).to(self.device)
         self.model.load_state_dict(payload['model'])
         self.model.eval()
 
