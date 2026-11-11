@@ -10,6 +10,7 @@ from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
 from training.model import Diacritizer, PAD, UNK
+from training.transformer import TransformerDiacritizer
 
 
 def load_records(path: Path) -> list[dict]:
@@ -68,6 +69,7 @@ def main():
     p.add_argument('--max-length', type=int, default=256)
     p.add_argument('--lr', type=float, default=0.001)
     p.add_argument('--seed', type=int, default=42)
+    p.add_argument('--architecture', choices=['bilstm','transformer'], default='bilstm')
     args = p.parse_args()
     if args.epochs < 1 or args.max_length < 1 or args.batch_size < 1:
         p.error('epochs, max-length and batch-size must be positive')
@@ -96,7 +98,8 @@ def main():
     val_loader = DataLoader(Lines(val, chars, tags, args.max_length), batch_size=args.batch_size, collate_fn=collate)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     config = dict(vocab_size=len(chars), tag_count=len(tags))
-    model = Diacritizer(**config).to(device)
+    model_class = TransformerDiacritizer if args.architecture == 'transformer' else Diacritizer
+    model = model_class(**config).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
     criterion = nn.CrossEntropyLoss(ignore_index=-100)
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -120,6 +123,7 @@ def main():
             best = val_error
             torch.save({'model': model.state_dict(), 'config': config, 'chars': chars, 'tags': tags,
                         'max_length': args.max_length, 'seed': args.seed, 'epoch': epoch,
+                        'architecture': args.architecture,
                         'val_tag_error': best}, args.output)
     print(f'best_val_tag_error={best:.4f} checkpoint={args.output}')
 
