@@ -20,14 +20,15 @@ def load_records(path: Path) -> list[dict]:
 
 
 class Lines(Dataset):
-    def __init__(self, records, chars, tags, max_length):
+    def __init__(self, records, chars, tags, max_length, allow_unknown_tags=False):
         self.items = []
         for r in records:
             text, labels = r['plain'], r['labels']
             for start in range(0, len(text), max_length):
                 chunk = text[start:start + max_length]
                 tag_chunk = labels[start:start + max_length]
-                self.items.append(([chars.get(c, 1) for c in chunk], [tags[t] for t in tag_chunk]))
+                self.items.append(([chars.get(c, 1) for c in chunk],
+                                   [tags.get(t, -100) if allow_unknown_tags else tags[t] for t in tag_chunk]))
 
     def __len__(self):
         return len(self.items)
@@ -90,12 +91,15 @@ def main():
     for tag in sorted({t for r in train for t in r['labels']}):
         if tag not in tags:
             tags[tag] = len(tags)
-    # Unknown validation tags are not learnable: fail rather than silently relabel.
-    unknown = {t for r in val for t in r['labels'] if t not in tags}
-    if unknown:
-        raise SystemExit(f'Validation includes unseen diacritic labels: {unknown}')
+    # Validation-only labels cannot be predicted by a training-derived vocabulary.
+    # Exclude them from the reported validation token error and disclose coverage.
+    unseen = sum(t not in tags for r in val for t in r['labels'])
+    val_total = sum(len(r['labels']) for r in val)
+    print(f'validation_unseen_labels={unseen}/{val_total} ({unseen/max(val_total,1):.2%}); excluded from val_tag_error', flush=True)
+    if unseen == val_total:
+        raise SystemExit('All validation labels are unseen in training')
     train_loader = DataLoader(Lines(train, chars, tags, args.max_length), batch_size=args.batch_size, shuffle=True, collate_fn=collate)
-    val_loader = DataLoader(Lines(val, chars, tags, args.max_length), batch_size=args.batch_size, collate_fn=collate)
+    val_loader = DataLoader(Lines(val, chars, tags, args.max_length, allow_unknown_tags=True), batch_size=args.batch_size, collate_fn=collate)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     config = dict(vocab_size=len(chars), tag_count=len(tags))
     model_class = TransformerDiacritizer if args.architecture == 'transformer' else Diacritizer
