@@ -1,7 +1,7 @@
 """Load a trusted locally trained checkpoint and diacritize text."""
 from pathlib import Path
 import torch
-from training.diacritics import apply_labels, strip_diacritics
+from training.diacritics import ARABIC_BASE_RE, apply_labels, strip_diacritics
 from training.model import Diacritizer
 from training.transformer import TransformerDiacritizer
 
@@ -34,4 +34,9 @@ class Predictor:
             lengths = torch.tensor([len(segment)])
             prediction = self.model(tokens, lengths).argmax(-1)[0].tolist()
             labels.extend(self.tags[i] for i in prediction)
+        # Training labels for punctuation/whitespace are normally empty, but
+        # unconstrained classifiers may predict Arabic marks for these tokens.
+        # Mask invalid predictions before reconstructing the text.
+        labels = [label if ARABIC_BASE_RE.fullmatch(char) else ''
+                  for char, label in zip(plain, labels)]
         return apply_labels(plain, labels)
