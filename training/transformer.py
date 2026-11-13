@@ -28,12 +28,13 @@ class TransformerDiacritizer(nn.Module):
         self.position = PositionalEncoding(embedding_dim)
         encoder_layer = nn.TransformerEncoderLayer(d_model=embedding_dim, nhead=heads,
             dim_feedforward=embedding_dim * 4, dropout=dropout, batch_first=True,
-            activation='gelu', norm_first=False)
-        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=layers)
+            activation='gelu', norm_first=True)
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=layers, enable_nested_tensor=False)
+        self.norm = nn.LayerNorm(embedding_dim)
         self.classifier = nn.Linear(embedding_dim, tag_count)
         self.scale = math.sqrt(embedding_dim)
 
     def forward(self, tokens: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
         mask = tokens.eq(0)
-        x = self.position(self.embedding(tokens) * self.scale)
-        return self.classifier(self.encoder(x, src_key_padding_mask=mask))
+        x = self.position(self.embedding(tokens))
+        return self.classifier(self.norm(self.encoder(x, src_key_padding_mask=mask)))
